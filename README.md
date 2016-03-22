@@ -1,2 +1,2 @@
 # fifteen-ai
-Fifteen puzzle solver
+Fifteen puzzle solver in Elixir

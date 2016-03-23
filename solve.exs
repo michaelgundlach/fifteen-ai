@@ -6,7 +6,20 @@ defmodule Board do
   #   blankpos = 15
   defstruct blankpos: nil, tiles: nil
 
-  @solvedblankpos 15
+  def from_string(str) do
+    letters = str |> String.codepoints |> Enum.with_index
+    {_, blankpos} = List.keyfind(letters, "_", 0)
+    tiles = for {char, i} <- letters, into: %{} do
+      {i, case char do
+            "_" -> :blank
+            _ -> String.to_atom char
+          end}
+    end
+    %Board{blankpos: blankpos, tiles: tiles}
+  end
+
+  def problem, do: from_string("eacdbfghijklmno_")
+
   @solvedtiles %{
            0 => :a,  1 => :b,  2 => :c,  3 => :d,
            4 => :e,  5 => :f,  6 => :g,  7 => :h,
@@ -14,7 +27,7 @@ defmodule Board do
           12 => :m, 13 => :n, 14 => :o, 15 => :blank
         }
   defmacro solved do
-    quote do: %Board{blankpos: unquote(Macro.escape @solvedblankpos),
+    quote do: %Board{blankpos: 15,
                      tiles: unquote(Macro.escape @solvedtiles)}
   end
 
@@ -68,6 +81,7 @@ defmodule Board do
 
   #TODO get memoization right
   #Memoize.memoize [board] do
+  def legal_plays(board) when board == solved, do: [solved]
   def legal_plays(board=%Board{blankpos: blankpos}) do
     Enum.map neighbor_positions(blankpos), &(board |> slide_from(&1))
   end
@@ -75,12 +89,12 @@ end
 
 defmodule GreedySolver do
   require Board
-  @lookahead_depth 5
+  @lookahead_depth 11
 
   @doc """
   List of Boards excluding current Board, to get to solution
   """
-  def solution(Board.solved), do: []
+  def solution(board) when board == Board.solved, do: []
   def solution(board) do
     next_board = best_next_board(board)
     [next_board | solution(next_board)]
@@ -91,8 +105,13 @@ defmodule GreedySolver do
   """
   def best_next_board(board) do
     tree = board |> MoveTree.to_depth(@lookahead_depth)
-    {_score, [_tree|best_path]} = MoveTree.scored_path_to_max_leaf(tree, @lookahead_depth, &(-Board.suckiness(&1.board)))
-    hd(best_path).board
+    {_score, _depth, best_path} = MoveTree.scored_path_to_max_node(tree, @lookahead_depth, &(-Board.suckiness(&1.board)))
+    # scored_path_to_max_node returns a 1-length path, [tree.board], if there is
+    # no better board within @lookahead_depth steps.  In that case, we give up.
+    # A more persistent AI would try moving at random, at least.
+    if (tl best_path) == [], 
+      do: raise "Gave up - no clear path forward within #{@lookahead_depth} steps"
+    hd(tl best_path)
   end
 end
 
@@ -108,20 +127,22 @@ defmodule MoveTree do
   end
 
   @doc """
-  returns {score, path}, starting at tree, of |depth+1| length.
-  score is score of the max leaf.
-  path is a list with tree as its first element
+  returns {score, node_depth, path}, of max |depth+1| length.
+  score is score of the max node.
+  node_depth is the depth of the max node relative to |head|.
+  path is a list starting with |head|, ending on the max node in the next |depth|
+  levels of the tree.
   """
-  def scored_path_to_max_leaf(tree, 0, scorer), do: {scorer.(tree), [tree]}
-  def scored_path_to_max_leaf(tree, depth, scorer) do
-    init_score = nil
-    init_path = nil
-    Enum.reduce tree.children, {init_score, init_path}, fn move, {acc_score, acc_path} ->
-      {score, path} = scored_path_to_max_leaf(move, depth-1, scorer)
-      if score < acc_score do # first time: (score < nil) is false
-        {acc_score, acc_path}
-      else
-        {score, [tree|path]}
+  def scored_path_to_max_node(head, 0, scorer), do: {scorer.(head), 0, [head.board]}
+  def scored_path_to_max_node(head, depth, scorer) do
+    init_acc = scored_path_to_max_node(head, 0, scorer)
+    Enum.reduce head.children, init_acc, fn child, {acc_score, acc_depth, acc_path} ->
+      {score, node_depth, path} = scored_path_to_max_node(child, depth-1, scorer)
+      cond do
+        score < acc_score -> {acc_score, acc_depth, acc_path}
+        score > acc_score -> {score, node_depth+1, [head.board|path]}
+        node_depth < acc_depth -> {score, node_depth+1, [head.board|path]}
+        true -> {acc_score, acc_depth, acc_path}
       end
     end
   end

@@ -6,7 +6,11 @@
 defmodule Example do
   def solve board do
     board = GreedySolver.best_next_board board |> IO.inspect
-    solve board
+    if board.suckiness == 0 do
+      "OK"
+    else
+      solve board
+    end
   end
 end
 

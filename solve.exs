@@ -21,18 +21,17 @@ defmodule Board do
     Board.from(blankpos, tiles)
   end
 
-  def problem, do: from_string("eacdbfghijklmno_")
-
   @solvedtiles %{
            0 => :a,  1 => :b,  2 => :c,  3 => :d,
            4 => :e,  5 => :f,  6 => :g,  7 => :h,
            8 => :i,  9 => :j, 10 => :k, 11 => :l,
           12 => :m, 13 => :n, 14 => :o, 15 => :blank
         }
-  defmacro solved do
-    quote do: %Board{blankpos: 15,
-                     tiles: unquote(Macro.escape @solvedtiles),
-                     suckiness: 0}
+
+  Enum.map @solvedtiles, fn {pos, tile} ->
+    def correct_pos(unquote(tile)), do: unquote(pos)
+    def row(unquote(pos)), do: unquote(div(pos, 4))
+    def col(unquote(pos)), do: unquote(rem(pos, 4))
   end
 
   # TODO yuck so hard coded
@@ -58,12 +57,6 @@ defmodule Board do
     end
   end
 
-  Enum.map @solvedtiles, fn {pos, tile} ->
-    def correct_pos(unquote(tile)), do: unquote(pos)
-    def row(unquote(pos)), do: unquote(div(pos, 4))
-    def col(unquote(pos)), do: unquote(rem(pos, 4))
-  end
-
   # 0 is solved.  Higher numbers are farther from solved.
   defp suckiness tiles do
     Enum.reduce tiles, 0, fn {pos, tile}, acc -> acc + distance(pos, tile) end
@@ -83,20 +76,19 @@ defmodule Board do
 
   #TODO get memoization right
   #Memoize.memoize [board] do
-  def legal_plays(board) when board == solved, do: [solved]
+  def legal_plays(board=%Board{suckiness: 0}), do: [board]
   def legal_plays(board=%Board{blankpos: blankpos}) do
     Enum.map neighbor_positions(blankpos), &(board |> slide_from(&1))
   end
 end
 
 defmodule GreedySolver do
-  require Board
   @lookahead_depth 11
 
   @doc """
   List of Boards excluding current Board, to get to solution
   """
-  def solution(board) when board == Board.solved, do: []
+  def solution(%Board{suckiness: 0}), do: []
   def solution(board) do
     next_board = best_next_board(board)
     [next_board | solution(next_board)]

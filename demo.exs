@@ -10,4 +10,6 @@ defmodule Example do
   end
 end
 
-Example.solve Board.problem
+problem = Board.from_string("eacdbfghijklmno_")
+
+Example.solve problem

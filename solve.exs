@@ -4,7 +4,10 @@ defmodule Board do
   # e.g. solved puzzle is:
   #   tiles = %{0: :a, 1: :b, ..., 14: :o, 15: :blank}
   #   blankpos = 15
-  defstruct blankpos: nil, tiles: nil
+  defstruct blankpos: nil, tiles: nil, suckiness: nil
+
+  def from(blankpos, tiles),
+    do: %Board{blankpos: blankpos, tiles: tiles, suckiness: suckiness(tiles)}
 
   def from_string(str) do
     letters = str |> String.codepoints |> Enum.with_index
@@ -15,7 +18,7 @@ defmodule Board do
             _ -> String.to_atom char
           end}
     end
-    %Board{blankpos: blankpos, tiles: tiles}
+    Board.from(blankpos, tiles)
   end
 
   def problem, do: from_string("eacdbfghijklmno_")
@@ -28,7 +31,8 @@ defmodule Board do
         }
   defmacro solved do
     quote do: %Board{blankpos: 15,
-                     tiles: unquote(Macro.escape @solvedtiles)}
+                     tiles: unquote(Macro.escape @solvedtiles),
+                     suckiness: 0}
   end
 
   # TODO yuck so hard coded
@@ -60,11 +64,9 @@ defmodule Board do
     def col(unquote(pos)), do: unquote(rem(pos, 4))
   end
 
-  @doc """
-  0 is solved.  Higher numbers are farther from solved.
-  """
-  def suckiness board do
-    Enum.reduce board.tiles, 0, fn {pos, tile}, acc -> acc + distance(pos, tile) end
+  # 0 is solved.  Higher numbers are farther from solved.
+  defp suckiness tiles do
+    Enum.reduce tiles, 0, fn {pos, tile}, acc -> acc + distance(pos, tile) end
   end
 
   # Slide distance from pos to tile's correct position.
@@ -76,7 +78,7 @@ defmodule Board do
   def slide_from(%Board{blankpos: blankpos, tiles: tiles}, slider_pos) do
     slider = tiles[slider_pos]
     newtiles = %{tiles | blankpos => slider, slider_pos => :blank}
-    %Board{blankpos: slider_pos, tiles: newtiles}
+    Board.from(slider_pos, newtiles)
   end
 
   #TODO get memoization right
@@ -104,8 +106,8 @@ defmodule GreedySolver do
   Return the one Board that has the best promise several moves out.
   """
   def best_next_board(board) do
-    tree = board |> MoveTree.to_depth(@lookahead_depth)
-    {_score, _depth, best_path} = MoveTree.scored_path_to_max_node(tree, @lookahead_depth, &(-Board.suckiness(&1.board)))
+    tree = MoveTree.for(board)
+    {_score, _depth, best_path} = MoveTree.scored_path_to_max_node(tree, @lookahead_depth, &(-&1.board.suckiness))
     # scored_path_to_max_node returns a 1-length path, [tree.board], if there is
     # no better board within @lookahead_depth steps.  In that case, we give up.
     # A more persistent AI would try moving at random, at least.
@@ -116,15 +118,11 @@ defmodule GreedySolver do
 end
 
 defmodule MoveTree do
-  defstruct board: nil, children: nil
+  defstruct board: nil
 
-  def to_depth(board, 0), do: %MoveTree{board: board, children: []}
-  def to_depth(board, n) do
-    movetrees = Enum.map Board.legal_plays(board), fn play -> 
-      to_depth(play, n-1)
-    end
-    %MoveTree{board: board, children: movetrees}
-  end
+  def for(board), do: %MoveTree{board: board}
+
+  def children(tree), do: Enum.map Board.legal_plays(tree.board), &(%MoveTree{board: &1})
 
   @doc """
   returns {score, node_depth, path}, of max |depth+1| length.
@@ -136,7 +134,7 @@ defmodule MoveTree do
   def scored_path_to_max_node(head, 0, scorer), do: {scorer.(head), 0, [head.board]}
   def scored_path_to_max_node(head, depth, scorer) do
     init_acc = scored_path_to_max_node(head, 0, scorer)
-    Enum.reduce head.children, init_acc, fn child, {acc_score, acc_depth, acc_path} ->
+    Enum.reduce children(head), init_acc, fn child, {acc_score, acc_depth, acc_path} ->
       {score, node_depth, path} = scored_path_to_max_node(child, depth-1, scorer)
       cond do
         score < acc_score -> {acc_score, acc_depth, acc_path}

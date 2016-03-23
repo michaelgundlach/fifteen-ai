@@ -99,7 +99,7 @@ defmodule GreedySolver do
   """
   def best_next_board(board) do
     tree = MoveTree.for(board)
-    {_score, _depth, best_path} = MoveTree.scored_path_to_max_node(tree, @lookahead_depth, &(-&1.board.suckiness))
+    {_, _, best_path} = MoveTree.scored_path_to_max_node(tree, @lookahead_depth, &(-&1.board.suckiness))
     # scored_path_to_max_node returns a 1-length path, [tree.board], if there is
     # no better board within @lookahead_depth steps.  In that case, we give up.
     # A more persistent AI would try moving at random, at least.

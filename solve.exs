@@ -4,7 +4,6 @@
 # - distance to start (for posterity - always choose him immediately when found as a leaf unless he's in our ancestry in which case never)
 defmodule Data do
   @n SolverAgent
-  # Record maps are {parent, leaves, distance}
 
   def init do
     {parents, leaves, distances} = { %{}, %{}, %{} }
@@ -23,6 +22,10 @@ end
 defmodule Solve do
   @lookahead_depth=5
 
+  def ancestor(board), do: ancestor(board, @lookahead_depth - 1)
+  def ancestor(board, 1), do: Data.parent(board)
+  def ancestor(board, n), do: ancestor(Data.parent(board), n-1)
+
   def solve(board) do
     Data.init
     bestchoice = init(board)
@@ -34,43 +37,58 @@ defmodule Solve do
   def init(startboard) do
     Data.set_parent(startboard, nil)
     Data.set_distance(startboard, 0)
-    init_data(startboard, startboard)
+    all_descendents = init_descendents(startboard, startboard) |> :lists.flatten
     {best, score, depth} = TODO #  - find best scoring board B in all 1-thru-4-descendents of A and create best-choice [B/S/D/?]
   end
 
-  def init_data(startboard, board, depth_remaining \\ @lookahead_depth-1) do
+  # Sets parent and distance for all startboard's descendents up to a certain depth.
+  # Set startboard's leaves.
+  # Returns board's descendents as an unflattened list.
+  def init_descendents(startboard, board, depth_remaining \\ @lookahead_depth-1) do
     children = Board.legal_plays(board)
-    dist = Data.distance(board)
+    child_dist = Data.distance(board) + 1
+    at_bottom_level = depth_remaining <= 1 # TODO is this right? name depth_remaining more clearly.
     Enum.each children, fn child ->
       Data.set_parent(child, board)
-      Data.set_distance(child, dist+1)
-      if depth_remaining == 0, do: Data.add_leaf(startboard, child)
+      Data.set_distance(child, child_dist)
+      if at_bottom_level, do: Data.add_leaf(startboard, child)
+    end
+
+    if at_bottom_level do
+      children
+    else
+      for child <- children do
+        [child | init_descendents(startboard, child, depth_remaining - 1)]
+      end
     end
   end
 
-  def do_solve(board, {best, score, depth}, map) do
+  #board must have .leaves filled
+  def do_solve(board, {best, score, depth}) do
     # return List of boards ending in solution or a local maximum
+
+    # RECURSE(N, best-choice=[C/S/D/?]):
+    # - %{N}.4-descendents.each L:
+    Enum.each Data.leaves(board), fn leaf ->
+      kids = Board.legal_plays(leaf)
+      leaf_dist = Data.distance(leaf)
+      kids_ancestor = ancestor(leaf, @lookahead_depth - 2)
+      Enum.each kids, fn kid ->
+        Data.set_parent(kid, leaf)
+        Data.set_distance(kid, leaf_dist + 1)
+        Data.add_leaf(kids_ancestor, kid)
+      end
+    end
+    # - Best kid B = min(all kids scores) # TODO - handle finding previously-discovered nodes with much shorter distance-to-start
+    # - If B's score is perfect:
+    #   - RETURN the full path from B to start node, in reverse.
+    # - If B's score beats S:
+    #   RECURSE(B's 4-parent, [B/B's score/4/?])
+    # - Else if D is > 0:
+    #   RECURSE(C's (D-1)-parent, [C/S/D-1/?])
+    # - Else
+    #   - RETURN the full path from C to start node, with a message that we're stuck in a local maximum.
   end
 
 end
 
-# If we were at a node with best-choice [board=C/score=S/depth=5/next-on-path-to-board=N], then we recurse on N and do the following:
-# # N must know its 4-descendents
-# # All descendents up to 4-descendents must know their parents and distance to start
-# RECURSE(N, best-choice=[C/S/D/?]):
-# - %{N}.4-descendents.each L:
-#   - make kids for L.  kids.each K:
-#     - %{K}.parent = L
-#     - %{K}.distance to start = %{L}.distance + 1
-#     - (K's 4-parent).4-descendents.prepend(K)
-#       [possible optimization: only do the above line for the 4-descendents of the 4-parent of the best kid.  But then we need to
-#        deal with if we find a rejected alternate path later.  Not worth it.]
-# - Best kid B = min(all kids scores) # TODO - handle finding previously-discovered nodes with much shorter distance-to-start
-# - If B's score is perfect:
-#   - RETURN the full path from B to start node, in reverse.
-# - If B's score beats S:
-#   RECURSE(B's 4-parent, [B/B's score/4/?])
-# - Else if D is > 0:
-#   RECURSE(C's (D-1)-parent, [C/S/D-1/?])
-# - Else
-#   - RETURN the full path from C to start node, with a message that we're stuck in a local maximum.

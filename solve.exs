@@ -7,10 +7,11 @@ defmodule Data do
 
   def init do
     {parents, leaves, distances} = { %{}, %{}, %{} }
-    {:ok, pid} = Agent.start_link(fn -> {parents, leaves, distances})
-    Process.register(pid, @name)
+    {:ok, pid} = Agent.start_link(fn -> {parents, leaves, distances} end)
+    Process.register(pid, @n)
   end
 
+  def exists(child), do: Agent.get(@n, fn {p, _, _} -> Map.has_key?(p, child) end)
   def set_parent(child, parent), do: Agent.update(@n, fn {parents, leaves, distances} -> {Map.put(parents, child, parent), leaves, distances} end)
   def parent(child), do: Agent.get(@n, fn {parents, _leaves, _distances} -> parents[child] end)
   def set_distance(child, distance), do: Agent.update(@n, fn {parents, leaves, distances} -> {parents, leaves, Map.put(distances, child, distance)} end)
@@ -20,75 +21,86 @@ defmodule Data do
 end
 
 defmodule Solve do
-  @lookahead_depth=5
+  @lookahead_depth 11 
 
   def ancestor(board), do: ancestor(board, @lookahead_depth - 1)
-  def ancestor(board, 1), do: Data.parent(board)
+  def ancestor(board, 0), do: board
   def ancestor(board, n), do: ancestor(Data.parent(board), n-1)
 
   def solve(board) do
     Data.init
-    bestchoice = init(board)
-    path = do_solve(board, bestchoice)
-    IO.puts "Length of path: #{Enum.count(path)}.  Final board:"
-    IO.inspect hd(:lists.reverse(path))
+    record(board, nil, 0)
+    all_descendents = init_descendents(board, 0) |> :lists.flatten
+    best_descendent = all_descendents |> Enum.min_by(&(&1.suckiness))
+
+    do_solve(board, {best_descendent, Data.distance(best_descendent)})
   end
 
-  def init(startboard) do
-    Data.set_parent(startboard, nil)
-    Data.set_distance(startboard, 0)
-    all_descendents = init_descendents(startboard, startboard) |> :lists.flatten
-    {best, score, depth} = TODO #  - find best scoring board B in all 1-thru-4-descendents of A and create best-choice [B/S/D/?]
+  def record(board, parent, distance) do
+    if not Data.exists board do
+      Data.set_parent(board, parent)
+      Data.set_distance(board, distance)
+    end
   end
 
-  # Sets parent and distance for all startboard's descendents up to a certain depth.
-  # Set startboard's leaves.
+  # Sets parent and distance for all board's descendents up to @lookahead_depth.
+  # Set start board's leaves.
   # Returns board's descendents as an unflattened list.
-  def init_descendents(startboard, board, depth_remaining \\ @lookahead_depth-1) do
-    children = Board.legal_plays(board)
-    child_dist = Data.distance(board) + 1
-    at_bottom_level = depth_remaining <= 1 # TODO is this right? name depth_remaining more clearly.
-    Enum.each children, fn child ->
-      Data.set_parent(child, board)
-      Data.set_distance(child, child_dist)
-      if at_bottom_level, do: Data.add_leaf(startboard, child)
+  def init_descendents(board, @lookahead_depth-2) do
+    make_leaf_offspring board
+  end
+  def init_descendents(board, current_depth) do
+    kids = Board.legal_plays(board)
+    # Don't merge the .each and .map, to record kids breadth-first instead
+    # of depth-first.  That way if a kid is found twice, he'll be credited
+    # correctly with the shorter path to the root.
+    Enum.each kids, fn kid ->
+      record(kid, board, current_depth + 1)
     end
+    Enum.map kids, fn kid ->
+      [kid | init_descendents(kid, current_depth + 1)]
+    end
+  end
 
-    if at_bottom_level do
-      children
-    else
-      for child <- children do
-        [child | init_descendents(startboard, child, depth_remaining - 1)]
-      end
+  # Grows kids one level beneath |leaf| and returns them in a list.
+  def make_leaf_offspring leaf do
+    kids = Board.legal_plays(leaf) # NB: filtering out parent(leaf) doesn't speed up solve()
+    kid_dist = Data.distance(leaf) + 1
+    kids_ancestor = ancestor(leaf, @lookahead_depth - 2)
+    Enum.each kids, fn kid ->
+      record(kid, leaf, kid_dist)
+      Data.add_leaf(kids_ancestor, kid)
     end
+    kids
   end
 
   #board must have .leaves filled
-  def do_solve(board, {best, score, depth}) do
-    # return List of boards ending in solution or a local maximum
+  # returns list of boards ending in solution or a local maximum
+  def do_solve(board, {best, depth}) do
+    all_kids = Enum.flat_map Data.leaves(board), &make_leaf_offspring/1
+    # TODO - handle finding previously-discovered but unvisited nodes with much shorter distance-to-start
+    best_kid = Enum.min_by(all_kids, fn kid -> kid.suckiness end)
 
-    # RECURSE(N, best-choice=[C/S/D/?]):
-    # - %{N}.4-descendents.each L:
-    Enum.each Data.leaves(board), fn leaf ->
-      kids = Board.legal_plays(leaf)
-      leaf_dist = Data.distance(leaf)
-      kids_ancestor = ancestor(leaf, @lookahead_depth - 2)
-      Enum.each kids, fn kid ->
-        Data.set_parent(kid, leaf)
-        Data.set_distance(kid, leaf_dist + 1)
-        Data.add_leaf(kids_ancestor, kid)
-      end
+    cond do
+      # Found solution
+      best_kid.suckiness == 0 -> path_from_root(best_kid)
+      # Found better solution than |best| - start heading toward it
+      best_kid.suckiness < best.suckiness -> do_solve(ancestor(best_kid), {best_kid, @lookahead_depth - 1})
+      # No better solution than |best| - keep heading toward it
+      depth > 0 -> do_solve(ancestor(best, depth-1), {best, depth - 1})
+      # |best| was |board| - we can't go any farther without looking deeper than @lookahead_depth.
+      true ->
+        IO.puts "Got stuck in a #{@lookahead_depth}-deep local maximum."
+        path_from_root(best)
     end
-    # - Best kid B = min(all kids scores) # TODO - handle finding previously-discovered nodes with much shorter distance-to-start
-    # - If B's score is perfect:
-    #   - RETURN the full path from B to start node, in reverse.
-    # - If B's score beats S:
-    #   RECURSE(B's 4-parent, [B/B's score/4/?])
-    # - Else if D is > 0:
-    #   RECURSE(C's (D-1)-parent, [C/S/D-1/?])
-    # - Else
-    #   - RETURN the full path from C to start node, with a message that we're stuck in a local maximum.
   end
 
+  def path_from_root(board), do: path_from_root(board, [])
+  def path_from_root(board, acc) do
+    case Data.parent(board) do
+      nil -> [board|acc]
+      parent -> path_from_root(parent, [board|acc])
+    end
+  end
 end
 

@@ -1,8 +1,0 @@
-slow is path calc - but what part?
-
-create new info nodes for boards as i go, which point to parents.
-if the board already exists, great - it was from a shorter route and created earlier.
-
-generate nodes 5 deep from the root, and keep track of the leaves.
-when you choose one step down from the root, ask the leaves to generate kids.
-then you have your full knowledge of the 5-deep new tree.

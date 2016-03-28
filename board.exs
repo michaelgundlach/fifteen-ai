@@ -81,3 +81,12 @@ defmodule Board do
     Enum.map neighbor_positions(blankpos), &(board |> slide_from(&1))
   end
 end
+
+defimpl String.Chars, for: Board do
+  def to_string(board) do
+    board.tiles
+    |> Map.values
+    |> Enum.map(fn a -> case a, do: (:blank -> "_"; x -> Atom.to_string x) end)
+    |> Enum.join("")
+  end
+end

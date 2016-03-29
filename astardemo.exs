@@ -1,1 +1,3 @@
-Astar.path(1, 100, fn i -> [i-1, i+i, i+i+i] end, fn i -> abs(100 - i) end)
+problem = Board.from_string("eacdbfghijklmno_")
+goal = Board.from_string(   "abcdefghijklmno_")
+Astar.path(problem, goal, &Board.legal_plays/1, &(&1.suckiness))

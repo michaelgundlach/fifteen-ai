@@ -7,7 +7,7 @@ defmodule Board do
   defstruct blankpos: nil, tiles: nil, suckiness: nil
 
   def from(blankpos, tiles),
-    do: %Board{blankpos: blankpos, tiles: tiles, suckiness: suckiness(tiles)}
+    do: %Board{blankpos: blankpos, tiles: tiles, suckiness: suckiness(blankpos, tiles)}
 
   def from_string(str) do
     letters = str |> String.codepoints |> Enum.with_index
@@ -58,8 +58,27 @@ defmodule Board do
   end
 
   # 0 is solved.  Higher numbers are farther from solved.
-  defp suckiness tiles do
-    Enum.reduce tiles, 0, fn {pos, tile}, acc -> acc + distance(pos, tile) end
+  defp suckiness(blankpos, tiles), do: blank_suckiness blankpos, tiles
+
+  # simple_suckiness: suckiness of each tile is its distance to its home
+  defp simple_suckiness _, tiles do
+    Enum.map(tiles, fn {pos, tile} -> distance(pos, tile) end)
+    |> Enum.sum
+  end
+
+  # blank_suckiness: suckiness of each misplaced tile is distance to current
+  # blank, plus 4*distance to its home.
+  # Logic: if a tile is misplaced, to put it right you must get the blank over
+  # to it, and then slide average ~4 times to move that tile 1 slot.
+  defp blank_suckiness blankpos, tiles do
+    Enum.map(tiles, fn {pos, tile} ->
+      dist = distance(pos, tile)
+      case dist do
+        0 -> 0 # not misplaced
+        _ -> distance(blankpos, tile) + 4*dist
+      end
+    end)
+    |> Enum.sum
   end
 
   # Slide distance from pos to tile's correct position.
@@ -79,5 +98,14 @@ defmodule Board do
   def legal_plays(board=%Board{suckiness: 0}), do: [board]
   def legal_plays(board=%Board{blankpos: blankpos}) do
     Enum.map neighbor_positions(blankpos), &(board |> slide_from(&1))
+  end
+end
+
+defimpl String.Chars, for: Board do
+  def to_string(board) do
+    board.tiles
+    |> Map.values
+    |> Enum.map(fn a -> case a, do: (:blank -> "_"; x -> Atom.to_string x) end)
+    |> Enum.join("")
   end
 end

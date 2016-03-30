@@ -32,5 +32,5 @@ defmodule Astar do
     end
   end
 
-  def pri(move, steps, scorer), do: steps + scorer.(move) * 1000
+  def pri(move, steps, scorer), do: steps + scorer.(move)
 end
